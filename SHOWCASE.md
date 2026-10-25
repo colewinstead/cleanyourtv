@@ -8,9 +8,22 @@ Nothing here is reviewed or maintained by this repo. Read the project's own READ
 it was built on, and treat it the way you'd treat any app you sideload. Each row links to the
 project's own issue tracker.
 
+**Before you install anything from this page.** A home screen is the app your TV opens most, and some
+of these projects ask for far more than the reference launcher does:
+
+- Build it from source, from a tag or commit you have looked at, rather than installing a prebuilt APK.
+- Read its `AndroidManifest.xml` for `android.permission.INTERNET`, `BIND_ACCESSIBILITY_SERVICE` (it can
+  read the screen and filter remote keys), `RECEIVE_BOOT_COMPLETED`, `REQUEST_INSTALL_PACKAGES`, and any
+  code that talks to ADB or Wireless debugging. If the manifest asks for something the row and the
+  project's README don't mention, don't install it, and open an issue here.
+- Before you install an update, check that its signing certificate matches the one you have:
+  `apksigner verify --print-certs app.apk`. A changed certificate on an "update" is a red flag.
+- Turn network ADB off when you're done, whatever you installed, and check it with
+  `tools/adb-closed.py <tv ip>`.
+
 **Jump to:** [Home screens built as their own app](#home-screens-built-as-their-own-app) · [Forks of the launcher](#forks-of-the-launcher) · [Screensavers and add-ons](#screensavers-and-add-ons) · [Tools and companion apps](#tools-and-companion-apps) · [Other platforms: Fire TV and LG webOS](#other-platforms-fire-tv-and-lg-webos) · [Add-ons in this repo](addons/README.md) · [Guides and write-ups](#guides-and-write-ups) · [Find a project by TV brand](#find-a-project-by-tv-brand) · [Add yours](#add-yours)
 
-116 projects so far.
+117 projects so far.
 
 ## Home screens built as their own app
 
@@ -149,6 +162,7 @@ Fire OS won't let another launcher replace Amazon's home, and LG TVs run webOS r
 
 | Project | What it is | Built on | By |
 |---|---|---|---|
+| [CleanYourTV AFTSS minimal fork](https://github.com/bearylabs/cleanyourtv/tree/firetv) ([build and test notes](https://github.com/bearylabs/cleanyourtv/blob/firetv/FIRETV.md), [screenshot](https://github.com/bearylabs/cleanyourtv/releases/download/firetv-device-check-images-2026-10-25/rc1-home.jpg)) | No-root fork with a Home redirect in its accessibility service and a fail-open cover; Amazon Home stays enabled, no new network permission | Fire TV Stick Lite 2020 (AFTSS / sheldon), Fire OS 7.7.1.7 / Android 9 | [bearylabs](https://github.com/bearylabs) |
 | [CleanYourTV for LG webOS](https://github.com/lasharor/cleanyourtv-WebOS) | A clean home for **rooted** LG webOS TVs (Homebrew Channel, SSH as root): a four-app dock with the focused app's glow, an app grid, Inputs and Settings shortcuts, Live TV from your own M3U playlist with a guide, and an optional debloat that stops LG's ad and telemetry services and blocks a few ad servers. Runs from RAM at boot; a reboot without its boot scripts brings LG's Home back | LG OLED65G26LA (G2), webOS 25 | [lasharor](https://github.com/lasharor) |
 | [Fire OS 6 Home watcher](https://github.com/ljis120301/tv-vibehack/tree/fire-tv-support) | Brings the launcher up over Amazon's home on a Fire TV Stick 4K, since Fire OS won't let it be replaced | Fire TV Stick 4K, Fire OS 6 | [ljis120301](https://github.com/ljis120301) |
 | [Fire OS 7 fast Home](https://github.com/andrewsaad/fire-tv-cleanup) | A fork of fire-tv-cleanup for Fire OS 7 (Android 9), where Android holds any background app back for 5 s after Home: the accessibility service clicks the launcher's own tile in Amazon's apps row instead, so Amazon opens it in about 0.6 s. Also a boot guard for apps that open themselves at boot, Windows PowerShell scripts and an AFTALMO debloat list | Amazon Fire TV AFTALMO, Fire OS 7.7 / Android 9 | [andrewsaad](https://github.com/andrewsaad) |
@@ -178,7 +192,7 @@ Walkthroughs other people wrote or recorded. Press coverage is listed in [docs/P
 
 By the TV each project was built and tested on. Most of them run on other Android TV sets too; check the project's README.
 
-- **Amazon Fire TV:** [CleanYourTV on Fire OS](https://github.com/GaneshVarma1/cleanyourtv/tree/fire-tv-launcher-settings-fix), [Fire OS 6 Home watcher](https://github.com/ljis120301/tv-vibehack/tree/fire-tv-support), [Fire OS 7 fast Home](https://github.com/andrewsaad/fire-tv-cleanup), [Fire TV Glass](https://github.com/ivantrj/firetv-glass-launcher), [Fire TV Stick Lite cleanup (AFTSS)](https://github.com/eteen12/firetv-stick-aftss-cleanup), [Fire TV → Apple TV front end](https://github.com/NikhilSiddhu/firetv-tvos), [fire-tv-cleanup](https://github.com/itsmeterrylin/fire-tv-cleanup), [Home Return and weather moods on a Fire TV](https://github.com/bansiman/cleanyourtv/tree/my-tv), [Violet Horizon](https://github.com/Kiwicoop247/firetv-glass-launcher/tree/violet-horizon)
+- **Amazon Fire TV:** [CleanYourTV AFTSS minimal fork](https://github.com/bearylabs/cleanyourtv/tree/firetv), [CleanYourTV on Fire OS](https://github.com/GaneshVarma1/cleanyourtv/tree/fire-tv-launcher-settings-fix), [Fire OS 6 Home watcher](https://github.com/ljis120301/tv-vibehack/tree/fire-tv-support), [Fire OS 7 fast Home](https://github.com/andrewsaad/fire-tv-cleanup), [Fire TV Glass](https://github.com/ivantrj/firetv-glass-launcher), [Fire TV Stick Lite cleanup (AFTSS)](https://github.com/eteen12/firetv-stick-aftss-cleanup), [Fire TV → Apple TV front end](https://github.com/NikhilSiddhu/firetv-tvos), [fire-tv-cleanup](https://github.com/itsmeterrylin/fire-tv-cleanup), [Home Return and weather moods on a Fire TV](https://github.com/bansiman/cleanyourtv/tree/my-tv), [Violet Horizon](https://github.com/Kiwicoop247/firetv-glass-launcher/tree/violet-horizon)
 - **Baron (CloudWalker OS):** [Baron Home](https://github.com/sethihq/baron-tv)
 - **BenQ:** [Navigation sounds](https://github.com/rocavence/tv-vibehack/tree/nav-sounds)
 - **Changhong:** [Glance line and crimson glass on a Changhong](https://github.com/bayhaqy/cleanyourtv/blob/main/my-tv/README.md)

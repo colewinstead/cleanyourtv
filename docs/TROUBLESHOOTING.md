@@ -88,6 +88,16 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   reconnect: Windscribe has Allow LAN traffic (Preferences > Connection) on its free plan, Proton VPN's
   Allow LAN connections is for paid plans only. Or disconnect the VPN for the session. Turn the option
   off again afterwards if you use public Wi-Fi.
+- **`tools/tv.py` times out after the TV took the connection** (`ADB did not finish the handshake`,
+  `TcpTimeoutException: Reading from <tv ip>:5555 timed out`) and no "Allow USB debugging?" prompt is
+  waiting: another ADB client may be holding the TV, as some firmware's `adbd` serves one client at a
+  time. Stop that client for the session, then run `tools/tv.py --probe` again. The stock `adb` server
+  is one: if `adb devices` lists the TV, run `adb kill-server` first. A
+  [Xiaomi Mi TV 4A, Android 6.0.1](https://github.com/Gathin23/cleanyourtv/issues/1185) timed out
+  whenever that server held a connection to the same port. Home Assistant's Android Debug Bridge
+  integration is another (its Android TV Remote integration does not use ADB): a
+  [TCL 55C61B, Google TV 12](https://github.com/Gathin23/cleanyourtv/issues/1526) owner had to disable
+  it in Home Assistant first, because it was holding the TV's ADB connection.
 - **Windows PowerShell 5.1 adds a byte-order mark** to text piped into a program, which turned the
   first batch command into gibberish. `tv.py` now strips it, and the `.ps1` scripts pipe clean UTF-8.
 - **"Allow USB debugging?" comes back**, or the TV answers `unauthorized` although `adb devices` already
@@ -106,6 +116,15 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
 
 - **Chained `pm` commands** (`pm disable a; pm disable b`) may silently stop after the first. Run
   one per shell call; `--batch` does exactly that.
+- **TCL's software update says "Local network or server abnormal" after the debloat**, while the
+  network works. TCL's updater gets the TV's device number (dnum) from `com.tcl.xian.StartandroidService`,
+  which the lists disable as reporting; without it the check stops with `dnum is null!` in logcat. Enable
+  it, reboot once (it starts at boot), run Settings > About > Software Update > Network Update, then disable
+  it again. Seen on a TCL Smart TV Pro (`G03_4K_US`, Google TV 11, GTV93).
+- **The Google Home panel (lights) is gone from the quick settings** on Google TV. It lives in
+  `com.google.android.apps.tv.dreamx`, the same package as the promo screensaver, and Apps only mode hides it
+  too. Re-enable dreamx and switch Apps only mode off to bring it back; the screensaver can stay on the
+  launcher's clock. Seen on a TCL Smart TV Pro (`G03_4K_US`, Google TV 11, GTV93).
 - **Large pushes hang** through the Python client. Use `tools/b64push.py` for APKs.
 - **`tools/tv.py reboot` never comes back.** `reboot` is a shell command, and adbd stops before it
   sends the shell's last `CLSE`, so the client waits for a reply that cannot arrive: two minutes,
@@ -368,6 +387,25 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   and `query-activities` answer with the resolver table's winner, which is not necessarily the
   activity that takes focus: `dumpsys activity activities | grep mFocusedApp` is the ground truth,
   and it is what to check before saying the takeover worked.
+- **Home works when tapped but does nothing when pressed firmly**, after the stock launcher is
+  disabled, seen on a Philips 65OLED804/12 (TPM191E, Android TV 12, `STT2.230526.001`) with a slow
+  third-party remote whose presses last 430 to 550 ms. Android turns a Home press held past 400 ms
+  into its long-press action, and `dumpsys window policy` shows it is
+  `mLongPressOnHomeBehavior=LONG_PRESS_HOME_ALL_APPS`. `PhoneWindowManager.launchAllAppsAction` sends
+  `ACTION_ALL_APPS` to the system-image Home only (`MATCH_SYSTEM_ONLY`), which with the stock
+  launcher disabled is `com.android.tv.settings/.system.FallbackHome`, and nothing answers it there:
+  logcat shows `START u0 {act=android.intent.action.ALL_APPS pkg=com.android.tv.settings}` 400 ms
+  after each key down and the TV stays where it was. Before the debloat the stock launcher answered
+  with its app grid, so it looked like Home. An injected `input keyevent --longpress KEYCODE_HOME`
+  reproduces it and a plain `input keyevent KEYCODE_HOME` does not. `settings put secure
+  long_press_timeout 800` does not move the limit, not even after a reboot. `home_long_press_home`
+  in `config.xml` or a theme, with `HOME_KEY_SERVICE=1` at install, makes `HomeKeyService` take every
+  Home press and open Home on release. That needs the helper to filter keys, so it costs the held-key
+  repeat described under [the key-repeat section](#a-key-helper-is-bound-and-a-held-remote-button-stopped-repeating).
+  Confirmed on this set: with `HomeKeyService` bound, Volume Down held for 3 s gave one step in
+  `dumpsys audio`; unbound, a 1.07 s hold gave 14 repeats 50 ms apart. Single presses step once either
+  way, also through HDMI ARC to a home cinema system. Choose between a firm Home press and a held volume
+  ramp; this set cannot have both.
 - **The TV drops off Wi-Fi for good the moment setupwraith is disabled**, seen on Google TV 14 (Sony
   BRAVIA 9 II, Philips R8G, Skyworth SWTV-24NA-4K NF, Xiaomi TV Box S 3rd gen MiTV-AFMU0) and on a TCL
   G07 on Google TV 11 (build AR17; on AR20 the network belonged to `android.uid.system`). A Wi-Fi
@@ -457,16 +495,18 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   com.google.android.katniss | grep enabled` and the same for `tv.remote.service` (`enabled=3` is
   disabled), then `logcat -d | grep AudioRecord` right after pressing the button: a session that
   opens and closes with no recognition is the missing bridge, not a broken Assistant. The AFMU0
-  list keeps both now; the lists that still disable `com.google.android.tv.remote.service` are
-  `rca-ai-pont`, `sharp-aquos-tve21f`, `sony-bravia-4k-gb-us`, `sony-xbr-65x900f`,
-  `sony-xbr-x900e`, `tcl-32s5k`, `tcl-40s5400a`, `tcl-55s470g`, `tcl-beyondtv2-android-11`,
-  `tcl-g09-google-tv`, `xgimi-horizon-s-pro`, `xgimi-mogo-3-pro` and `xiaomi-mi-box-s`. Those TVs
-  haven't been tested for this, but any of them whose remote has a microphone may show the same
-  symptom. The G10 list has since been tested from the other side: on a 43T6C (G10, Realtek, build
-  `STT2.230203.001`) a mic press with `com.google.android.tv.remote.service` disabled logs `Unable to
-  start service Intent { act=...AtvSearchAssistantService ... } U=0: not found` — that service lives in
-  the package — and re-enabling only it, with every other line applied, brought the button back, so
-  `tcl-g10-google-tv` keeps it now.
+  list keeps both now; the lists that still disable `com.google.android.tv.remote.service` include
+  `liberton-ltv-24h01at`, `panavox-google-tv`, `rca-ai-pont`, `sharp-aquos-tve21f`,
+  `sony-bravia-4k-gb-us`, `sony-xbr-65x900f`, `sony-xbr-x900e`, `tcl-32s5k`, `tcl-40s5400a`,
+  `tcl-55s470g`, `tcl-65ep640`, `tcl-beyondtv2-android-11`, `tcl-g09-google-tv`,
+  `xgimi-horizon-s-pro`, `xgimi-mogo-3-pro`, `xgimi-mogo-4`, `xiaomi-mi-box-3` and
+  `xiaomi-mi-box-s`, and `grep -l '^com.google.android.tv.remote.service' examples/*/debloat.txt`
+  prints the current set. Those TVs haven't been tested for this, but any of them whose remote has a
+  microphone may show the same symptom. The G10 list has since been tested from the other side: on a
+  43T6C (G10, Realtek, build `STT2.230203.001`) a mic press with `com.google.android.tv.remote.service`
+  disabled logs `Unable to start service Intent { act=...AtvSearchAssistantService ... } U=0: not found`
+  — that service lives in the package — and re-enabling only it, with every other line applied, brought
+  the button back, so `tcl-g10-google-tv` keeps it now.
 - **Casting from a phone fails with "Untrusted device" after setupwraith is disabled**, seen on
   Chromecast with Google TV HD (`boreal`) on Google TV 14 build UTTC.250917.004, the build the
   `examples/google-chromecast-gtv-4k/` list was made on. YouTube on the phone says "Untrusted device.
@@ -664,6 +704,10 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   `tools/tv.py 'am start -n com.android.systemui/.Somnambulator'`, then
   `tools/tv.py 'dumpsys dreams | grep mCurrentDreamName'`. The key helpers hit the same denial: see
   [Accessibility helper enabled but the remote button does nothing](#accessibility-helper-enabled-but-the-remote-button-does-nothing).
+- **The TV wakes from standby back on the last HDMI input, and `power_on_home` takes about 5 s or misses it**
+  (Philips 65OLED706, Android TV 11): the firmware only resumes the `org.droidtv.playtv` window it left, which
+  sends its window event once the input has a picture, if at all. Set `power_on_home_always` too: Home comes
+  up about a second after the screen turns on, whatever is in front (an input, Live TV or an app).
 
 ## Accessibility helper enabled but the remote button does nothing
 
