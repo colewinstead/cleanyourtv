@@ -1,0 +1,9 @@
+{
+  "app_keys": [
+    "4062:com.netflix.ninja",
+    "4065:com.google.android.youtube.tv",
+    "4099:com.amazon.amazonvideo.livingroom",
+    "4160:com.apple.atve.androidtv.appletv"
+  ],
+  "settings_key_keycodes": [83]
+}
