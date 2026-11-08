@@ -4,8 +4,9 @@ This fork preserves a launcher configuration tested on a TCL G10 (`G10_4K_US_NF`
 Android 12, firmware `STT2.230203.001` / AS50. It is based on
 [Gathin23/cleanyourtv](https://github.com/Gathin23/cleanyourtv), commit
 `34e1c42925268286c9e1c3edca4134cbf9b9cf70`. The upstream MIT license and authorship
-are retained. This branch stays on the tested source version; newer upstream
-commits have not been installed or verified on this TV.
+are retained. The configuration was tested on that source version. This branch
+also includes newer upstream updates, which have not been installed or verified
+on this TV.
 
 ## Saved configuration
 
