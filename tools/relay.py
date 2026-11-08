@@ -10,6 +10,7 @@ terminal, then point the tools at it:
 
 Usage: relay.py [TV_HOST[:PORT]] [--tv-port 5555] [--port 15555]
 The TV's port is --tv-port, else the one in the address, else TV_PORT, else 5555.
+A URL or a page opened at the address is refused by name: give the IP (or IP:port) alone.
 It listens on 127.0.0.1 only, never on the network. Read tools/relay.md first.
 """
 import argparse
@@ -70,6 +71,36 @@ def serve(srv, tv_host, tv_port):
             threading.Thread(target=pipe, args=(a, b), daemon=True).start()
 
 
+def address_problem(word):
+    """Why this word cannot be the TV's address, as the sentence to print, or None.
+
+    The address is read out of a browser or copied off a page often enough that the two shapes it is
+    never in are worth naming. `http://<tv ip>` split into the host "http" and the port "//<tv ip>", so
+    the run answered "not a port number: '//<tv ip>'" - a sentence about a port fragment for a word that
+    is an address of another kind. `http://<tv ip>:5555` and `<tv ip>/6/system` became hosts literally
+    named for the URL and the page, and the relay started and printed where it forwards to, so the owner
+    was told it was up; only a client that connected was told "cannot reach ... (is the TV on, and network
+    debugging still on?)" - the TV, its standby and the network blamed for an argument this script cannot
+    use. Neither a scheme nor a path is ever part of an address, in brackets for IPv6 or not.
+    """
+    word = word.strip()
+    if "://" in word:
+        return ("that is a URL, not the TV's address: give the IP (or IP:port) alone, e.g.  "
+                "tools/venv/bin/python -I tools/relay.py <tv ip>")
+    if "/" in word:
+        return ("that is a path, not the TV's address: give the IP (or IP:port) alone, without the / or "
+                "the page it opens, e.g.  tools/venv/bin/python -I tools/relay.py <tv ip>")
+    return None
+
+
+def checked_port(p, flag, port, lowest):
+    """A port this script can bind or connect to, or the parser's refusal: --port may be 0, the TV's port may not."""
+    if port is not None and not lowest <= port <= 65535:
+        hint = " (0 picks one)" if lowest == 0 else ""
+        p.error(f"{flag}: not a port number: {port!r}{hint}")
+    return port
+
+
 def main():
     p = argparse.ArgumentParser(description="Forward 127.0.0.1:PORT to the TV's ADB port. See tools/relay.md.")
     p.add_argument("tv_host", nargs="?", default=os.environ.get("TV_HOST"),
@@ -79,7 +110,20 @@ def main():
     p.add_argument("--port", type=int, default=15555, help="local port to listen on (default 15555; 0 picks one)")
     args = p.parse_args()
     if not args.tv_host:
-        p.error("give the TV's IP address, e.g.  tools/relay.py 192.168.1.50")
+        p.error("give the TV's IP address, e.g.  tools/venv/bin/python -I tools/relay.py 192.168.1.50")
+    # Before the port is read out of it, so a URL's "//<tv ip>" is not answered as a port fragment and a
+    # page's "/6/system" does not become the host the relay prints as where it forwards to. 2, like the
+    # other refusals here: nothing was bound and nothing was asked of the TV.
+    problem = address_problem(args.tv_host)
+    if problem:
+        p.error(problem)
+    # Both options are ports, and neither was checked: --port went to bind() as typed, and bind() refuses a
+    # port above 65535 (or a negative one) with an OverflowError - not an OSError, so the "cannot listen"
+    # message below never saw it - while --tv-port skipped the 1..65535 check the address and TV_PORT get a
+    # few lines further down. socket.create_connection cuts a servname to 16 bits, so "--tv-port 70000" printed
+    # "-> <tv>:70000" and forwarded to <tv>:4464, whatever service is there.
+    args.port = checked_port(p, "--port", args.port, 0)
+    args.tv_port = checked_port(p, "--tv-port", args.tv_port, 1)
     # The same order as tv.py and adb-closed.py (#997). With 5555 fixed, a TV whose adbd has a port of its
     # own (5877 on the Wanbo T6R Max) was relayed to 5555 whatever TV_HOST and TV_PORT said.
     args.tv_host, endpoint_port = split_host_port(args.tv_host)
@@ -99,7 +143,7 @@ def main():
     env_host = split_host_port(os.environ.get("TV_HOST", ""))[0]
     if port_from_env and (args.tv_port == args.port or (env_host in loopback and args.tv_host not in loopback)):
         p.error(f"TV_PORT={args.tv_port} is a relay's port, set for the tools: unset TV_HOST TV_PORT in this "
-                "terminal, or give the TV's port, e.g.  tools/relay.py 192.168.1.50:5555")
+                "terminal, or give the TV's port, e.g.  tools/venv/bin/python -I tools/relay.py 192.168.1.50:5555")
     if args.tv_host in loopback and args.tv_port == args.port:
         p.error("that is the relay itself: give the TV's IP address")
 

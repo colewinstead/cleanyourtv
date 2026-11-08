@@ -6,21 +6,28 @@ there, both ended in a FileNotFoundError traceback - exit 1 - before, which is t
 gives. The script's own docstring names 2 for "what it was given cannot be read", and `--font` on a path that is
 not there already exits 2 through ap.error, so this is one rule applied to its other two paths.
 
-Every test runs the real script in a subprocess, since the exit status and the line on stderr are what a
-maintainer sees; the trees come from tests/test_gen_tables.py, so a valid checkout is built the same way there.
+Path checks run the real script in a subprocess, since the exit status and the line on stderr are what a
+maintainer sees. Metadata read failures are injected at the file read so they work across platforms; the trees
+come from tests/test_gen_tables.py, so a valid checkout is built the same way there.
 
 Run from the repository root: python3 -m unittest discover -s tests -v
 """
+import contextlib
+import errno
+import io
+import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "tools"))
 from test_gen_tables import add, tree, tv  # noqa: E402  (the small checkout the other gen_tables tests use)
+import gen_tables  # noqa: E402
 
 SCRIPT = ROOT / "tools" / "gen_tables.py"
 
@@ -124,7 +131,8 @@ class AdoptTest(unittest.TestCase):
             root = valid(tmp)
             code, out, err = run("--root", str(root), "--adopt", tmp)
             self.assertEqual(code, 2, err)
-            self.assertIn("Is a directory", err)
+            # Windows refuses to open a folder with "Permission denied" where POSIX says "Is a directory".
+            self.assertIn("Permission denied" if sys.platform == "win32" else "Is a directory", err)
             self.assertIn("Nothing was written", err)
             self.assertEqual(out, "")
 
@@ -154,18 +162,115 @@ class AdoptTest(unittest.TestCase):
             self.assertEqual(out, "")
 
 
+class CheckAdoptTest(unittest.TestCase):
+    def assert_conflict(self, code, out, err):
+        self.assertEqual(code, 2, err)
+        self.assertEqual(out, "")
+        self.assertIn("usage:", err)
+        error = err.splitlines()[-1]
+        self.assertIn("--check", error)
+        self.assertIn("--adopt", error)
+
+    def test_existing_metadata_is_not_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = valid(tmp)
+            metadata = root / "examples" / "tcl-a" / "tv.json"
+            before = metadata.read_bytes()
+            patch = root / "pr.diff"
+            patch.write_text("-| `tcl-a/` | TCL A | Android TV 11 | ads off |\n"
+                             "+| `tcl-a/` | TCL A | Android TV 11 | updated notes |\n", encoding="utf-8")
+            result = run("--root", str(root), "--check", "--adopt", str(patch), cwd=root)
+            self.assertEqual(metadata.read_bytes(), before)
+            self.assert_conflict(*result)
+
+    def test_missing_metadata_is_not_created(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = valid(tmp)
+            add(root, "tcl-d", None)
+            metadata = root / "examples" / "tcl-d" / "tv.json"
+            patch = root / "pr.diff"
+            patch.write_text("| `tcl-d/` | TCL D | Android TV 11 | ads off |\n", encoding="utf-8")
+            result = run("--root", str(root), "--adopt", str(patch), "--check", cwd=root)
+            self.assertFalse(metadata.exists())
+            self.assert_conflict(*result)
+
+    def test_conflict_is_reported_before_inputs_are_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "missing-checkout"
+            patch = Path(tmp) / "missing.diff"
+            self.assert_conflict(*run("--root", str(root), "--check", "--adopt", str(patch), cwd=tmp))
+            self.assertFalse(root.exists())
+
+    def test_an_empty_adopt_argument_still_conflicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = valid(tmp)
+            self.assert_conflict(*run("--root", str(root), "--check", "--adopt", "", cwd=root))
+
+
+class MetadataReadTest(unittest.TestCase):
+    def assert_unreadable_metadata(self, mode):
+        for error in (PermissionError(errno.EACCES, "metadata access denied"),
+                      OSError(errno.EIO, "metadata read failed")):
+            with self.subTest(mode=mode, error=error.errno), tempfile.TemporaryDirectory() as tmp:
+                root = valid(tmp)
+                metadata = root / "examples" / "tcl-a" / "tv.json"
+                patch = Path(tmp) / "pr.diff"
+                patch.write_text("| `tcl-d/` | TCL D | Android TV 11 | ads off |\n", encoding="utf-8")
+                add(root, "tcl-d", None if mode == "adopt" else tv("TCL D", "TCL"))
+                # A normal rewrite would change the stale tables, and --adopt would create this tv.json.
+                before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                read_text = Path.read_text
+
+                def read(path, *args, **kwargs):
+                    if path == metadata:
+                        raise error
+                    return read_text(path, *args, **kwargs)
+
+                argv = ["--root", str(root)]
+                if mode == "adopt":
+                    argv += ["--adopt", str(patch)]
+                elif mode == "check":
+                    argv += ["--check"]
+                with mock.patch.object(Path, "read_text", read), \
+                        contextlib.redirect_stdout(io.StringIO()) as out, \
+                        contextlib.redirect_stderr(io.StringIO()) as err:
+                    code = gen_tables.main(argv)
+                self.assertEqual(code, 2, err.getvalue())
+                self.assertEqual(out.getvalue(), "")
+                self.assertIn("examples/tcl-a/tv.json", err.getvalue())
+                self.assertIn(error.strerror, err.getvalue())
+                self.assertNotIn("not valid JSON", err.getvalue())
+                self.assertNotIn("Traceback", err.getvalue())
+                self.assertEqual({p: p.read_bytes() for p in root.rglob("*") if p.is_file()}, before)
+                if mode == "adopt":
+                    self.assertFalse((root / "examples" / "tcl-d" / "tv.json").exists())
+
+    def test_check_refuses_unreadable_metadata_without_reporting_stale_tables(self):
+        self.assert_unreadable_metadata("check")
+
+    def test_adopt_refuses_unreadable_metadata_before_creating_any(self):
+        self.assert_unreadable_metadata("adopt")
+
+    def test_rewrite_refuses_unreadable_metadata_before_changing_tables(self):
+        self.assert_unreadable_metadata("rewrite")
+
+
 class UnchangedTest(unittest.TestCase):
     def test_a_checkout_exits_0_and_a_stale_one_still_1(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = valid(tmp)
             code, out, err = run("--root", str(root))
             self.assertEqual(code, 0, err)
+            metadata = root / "examples" / "tcl-a" / "tv.json"
+            before = metadata.read_bytes()
             code, out, err = run("--root", str(root), "--check")
             self.assertEqual(code, 0, err)
+            self.assertEqual(metadata.read_bytes(), before)
             add(root, "tcl-c", tv("TCL C", "TCL"))
             code, out, err = run("--root", str(root), "--check")
             self.assertEqual(code, 1, err)
             self.assertIn("Out of date", out)
+            self.assertEqual(metadata.read_bytes(), before)
 
     def test_a_readable_patch_is_still_applied(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,6 +282,8 @@ class UnchangedTest(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn("examples/tcl-d/tv.json", out)
             self.assertTrue((root / "examples" / "tcl-d" / "tv.json").is_file())
+            self.assertEqual(json.loads((root / "examples" / "tcl-d" / "tv.json").read_text(encoding="utf-8")),
+                             tv("TCL D", "TCL"))
 
 
 if __name__ == "__main__":
